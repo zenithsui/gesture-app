@@ -26,23 +26,12 @@ jobs:
         with:
           version: 10
 
-      - name: Get pnpm store path
-        id: pnpm-cache
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install dependencies (no frozen lockfile)
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build web app
-        run: pnpm --filter @workspace/gesture-app run build
+        working-directory: artifacts/gesture-app
+        run: pnpm run build
         env:
           PORT: "20828"
           BASE_PATH: "/gesture/"
@@ -63,7 +52,7 @@ jobs:
       - name: Add Capacitor Android platform
         working-directory: artifacts/gesture-app
         run: |
-          npx cap add android || echo "Android already added"
+          npx cap add android 2>&1 || echo "Android already added"
           npx cap sync android
 
       - name: Grant Gradle wrapper permission
@@ -86,9 +75,9 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gesture-app-debug-${{ github.sha }}
+          name: gesture-app-debug
           path: artifacts/gesture-app/android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+          retention-days: 90
 
       - name: Create GitHub Release on tag
         if: startsWith(github.ref, 'refs/tags/')
@@ -97,21 +86,12 @@ jobs:
           files: artifacts/gesture-app/android/app/build/outputs/apk/debug/app-debug.apk
           name: Gesture ${{ github.ref_name }}
           body: |
-            ## Gesture — Touchless Hand Gesture Control
-            
+            ## Gesture — Touchless Hand Control ${{ github.ref_name }}
             iOS 26 Liquid Glass UI · MediaPipe Hands · 60 FPS · On-device ML
-            
-            ### 7 Gestures
-            - ☝️ Pointer — index finger tip tracks cursor
-            - ✊ Click — fist triggers tap at pointer position  
-            - ✋ Scroll — open palm tilts to scroll
-            - ✌️ Back — peace sign navigates back
-            - 🤏 Home — pinch returns home
-            - 👈👉 Swipe — open palm sweep navigates
-            
-            ### Install (sideload)
-            1. Download `app-debug.apk`
-            2. Enable "Install from unknown sources" on Android
+
+            ### Install (sideload on Android)
+            1. Download `app-debug.apk` below
+            2. Enable **Install from unknown sources** in Android Settings
             3. Open the APK file on your device
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

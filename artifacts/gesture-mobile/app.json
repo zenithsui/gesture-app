@@ -16,11 +16,22 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Camera is used for real-time hand gesture tracking — all processing is on-device."
+        "NSCameraUsageDescription": "Camera is used for real-time hand gesture tracking — all processing is on-device.",
+        "NSMicrophoneUsageDescription": "Microphone listens for the 'Open Bro' wake word to activate gesture control hands-free.",
+        "NSSpeechRecognitionUsageDescription": "Speech recognition detects the 'Open Bro' wake word to activate gesture tracking.",
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
-      "permissions": ["android.permission.CAMERA"]
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.VIBRATE",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.INTERNET",
+        "android.permission.WAKE_LOCK"
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -34,7 +45,14 @@
       ],
       "expo-font",
       "expo-web-browser",
-      "expo-camera"
+      "expo-camera",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Microphone listens for the 'Open Bro' wake word to activate gesture control hands-free.",
+          "speechRecognitionPermission": "Speech recognition detects the 'Open Bro' wake word to activate gesture tracking."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

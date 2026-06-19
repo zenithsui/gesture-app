@@ -7,9 +7,12 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
-    name: Build Debug APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -26,15 +29,15 @@ jobs:
         with:
           version: 10
 
-      - name: Install dependencies (no frozen lockfile)
+      - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Build web app
+      - name: Build web app for Capacitor (base = /)
         working-directory: artifacts/gesture-app
         run: pnpm run build
         env:
           PORT: "20828"
-          BASE_PATH: "/gesture/"
+          BASE_PATH: "/"
           NODE_ENV: production
 
       - name: Set up JDK 21
@@ -49,49 +52,109 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
-      - name: Add Capacitor Android platform
+      - name: Add and sync Capacitor Android platform
         working-directory: artifacts/gesture-app
         run: |
-          npx cap add android 2>&1 || echo "Android already added"
+          npx cap add android 2>&1 || echo "Android platform already exists"
           npx cap sync android
+
+      - name: Patch Android permissions into manifest
+        run: |
+          python3 - <<'PYEOF'
+          import re
+
+          path = "artifacts/gesture-app/android/app/src/main/AndroidManifest.xml"
+          with open(path, "r") as f:
+              content = f.read()
+
+          perms = """
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-feature android:name="android.hardware.camera" android:required="false" />
+              <uses-feature android:name="android.hardware.microphone" android:required="false" />
+          """
+
+          if "android.permission.CAMERA" not in content:
+              content = content.replace("<application", perms + "\n    <application", 1)
+              with open(path, "w") as f:
+                  f.write(content)
+              print("Permissions added.")
+          else:
+              print("Permissions already present.")
+          PYEOF
 
       - name: Grant Gradle wrapper permission
         working-directory: artifacts/gesture-app/android
         run: chmod +x gradlew
 
-      - name: Cache Gradle
+      - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: ${{ runner.os }}-gradle-
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Build Debug APK
         working-directory: artifacts/gesture-app/android
         run: ./gradlew assembleDebug --no-daemon
+        env:
+          JAVA_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=512m"
 
-      - name: Upload APK artifact
+      - name: Rename APK for download
+        run: |
+          cp artifacts/gesture-app/android/app/build/outputs/apk/debug/app-debug.apk \
+             artifacts/gesture-app/android/app/build/outputs/apk/debug/gesture-app.apk
+
+      - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gesture-app-debug
-          path: artifacts/gesture-app/android/app/build/outputs/apk/debug/app-debug.apk
+          name: gesture-app-build-${{ github.run_number }}
+          path: artifacts/gesture-app/android/app/build/outputs/apk/debug/gesture-app.apk
           retention-days: 90
 
-      - name: Create GitHub Release on tag
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+      - name: Create or update Latest Release with APK download
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: ncipollo/release-action@v1
         with:
-          files: artifacts/gesture-app/android/app/build/outputs/apk/debug/app-debug.apk
-          name: Gesture ${{ github.ref_name }}
+          artifacts: "artifacts/gesture-app/android/app/build/outputs/apk/debug/gesture-app.apk"
+          artifactContentType: "application/vnd.android.package-archive"
+          tag: latest
+          name: "Gesture — Latest Build"
           body: |
-            ## Gesture — Touchless Hand Control ${{ github.ref_name }}
-            iOS 26 Liquid Glass UI · MediaPipe Hands · 60 FPS · On-device ML
+            ## Gesture — Touchless Hand Control
 
-            ### Install (sideload on Android)
-            1. Download `app-debug.apk` below
-            2. Enable **Install from unknown sources** in Android Settings
-            3. Open the APK file on your device
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            🤚 **MediaPipe Hands · 60 FPS · On-device ML · No data ever leaves your phone**
+
+            Auto-built from commit `${{ github.sha }}` — ${{ github.event.head_commit.message }}
+
+            ---
+
+            ### 📲 Install on Android
+            1. Tap **gesture-app.apk** below to download
+            2. Open the file on your Android device
+            3. If prompted: **Settings → Security → Install unknown apps** → enable
+            4. Grant **Camera** and **Microphone** permissions when the app asks
+
+            ### ✋ Gestures
+            | Gesture | Action |
+            |---------|--------|
+            | ☝️ Index finger up | Move pointer |
+            | ✊ Fist | Click / Tap |
+            | ✋ Open palm | Scroll |
+            | ✌️ Peace sign | Go back |
+            | 🤏 Pinch | Go home |
+            | 👈 Swipe left | Previous |
+            | 👉 Swipe right | Next |
+
+            > All processing is on-device — zero network calls.
+          allowUpdates: true
+          removeArtifacts: true
+          makeLatest: true
+          token: ${{ secrets.GITHUB_TOKEN }}

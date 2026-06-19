@@ -1,0 +1,117 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: Get pnpm store path
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web app
+        run: pnpm --filter @workspace/gesture-app run build
+        env:
+          PORT: "20828"
+          BASE_PATH: "/gesture/"
+          NODE_ENV: production
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+
+      - name: Add Capacitor Android platform
+        working-directory: artifacts/gesture-app
+        run: |
+          npx cap add android || echo "Android already added"
+          npx cap sync android
+
+      - name: Grant Gradle wrapper permission
+        working-directory: artifacts/gesture-app/android
+        run: chmod +x gradlew
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Build Debug APK
+        working-directory: artifacts/gesture-app/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gesture-app-debug-${{ github.sha }}
+          path: artifacts/gesture-app/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Create GitHub Release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/gesture-app/android/app/build/outputs/apk/debug/app-debug.apk
+          name: Gesture ${{ github.ref_name }}
+          body: |
+            ## Gesture — Touchless Hand Gesture Control
+            
+            iOS 26 Liquid Glass UI · MediaPipe Hands · 60 FPS · On-device ML
+            
+            ### 7 Gestures
+            - ☝️ Pointer — index finger tip tracks cursor
+            - ✊ Click — fist triggers tap at pointer position  
+            - ✋ Scroll — open palm tilts to scroll
+            - ✌️ Back — peace sign navigates back
+            - 🤏 Home — pinch returns home
+            - 👈👉 Swipe — open palm sweep navigates
+            
+            ### Install (sideload)
+            1. Download `app-debug.apk`
+            2. Enable "Install from unknown sources" on Android
+            3. Open the APK file on your device
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

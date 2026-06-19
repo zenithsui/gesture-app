@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "expo-camera": "~17.0.10",
-    "expo-keep-awake": "^56.0.3",
+    "expo-keep-awake": "^15.0.8",
     "expo-speech-recognition": "^56.0.1"
   }
 }
